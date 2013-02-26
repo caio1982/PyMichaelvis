@@ -1,0 +1,5 @@
+- me livrar do xunxo de escrever no disco pra fazer search
+- usar algum dialog e nao qmainwindow, ou no maemo fica tela cheia
+- user qtextbrowser por causa do html ou text dialog normal?
+- sleep(30) e hide no dialog, ou via clicked()
+- ver por que nao funciona HTML no maemo
