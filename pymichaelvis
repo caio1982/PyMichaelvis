@@ -1,0 +1,172 @@
+#!/usr/bin/env python
+#
+# Copyright (c) 2008, Caio Begotti. All rights reserved.
+# PyMichaelvis: PyQt version of Vinicius Della Libera's Micha Elvis 2008
+#
+# This file is free software. You are free to use this file in any way you like
+# However, if you change it you should note in this file that you did and who
+# you are, you also need to change the version string if you do. That way
+# I will not get support questions for software that is not entirely mine.
+
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+# WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
+# EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+# PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+# LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+# NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+# EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+# basic modules
+import sys
+import os
+import re
+
+# qt's signal and slot support
+from PyQt4 import QtCore
+from PyQt4.QtCore import QString
+
+# for the GUI objects
+from PyQt4 import QtGui
+from PyQt4.QtGui import QIcon
+from PyQt4.QtGui import QMenu
+
+# for fetching and parsing
+from StringIO import StringIO
+import pycurl
+import urllib
+
+class Systray(QtGui.QMainWindow):
+	def __init__(self):
+		QtGui.QMainWindow.__init__(self)
+
+		if QtGui.QSystemTrayIcon.isSystemTrayAvailable():
+			self.quitAction = QtGui.QAction('Fechar', self)
+			QtCore.QObject.connect(self.quitAction, QtCore.SIGNAL('triggered()'), QtGui.QApplication.instance(), QtCore.SLOT('quit()'))
+
+			self.createTrayIcon()
+		else:
+			# it's unlikely you will ever hit this
+			print 'No system tray available, aborting.'
+			sys.exit(1)
+
+	def textWindow(self, definition):
+		# formatting the text to be shown
+		self.text = QtGui.QTextEdit()
+		self.text.setReadOnly(True)
+		self.text.setHtml(definition)
+		self.text.setStyleSheet("QTextEdit {font-size: 16pt;}")
+
+		# window properties
+		self.setCentralWidget(self.text)
+		self.setWindowTitle(self.tr("PyMichaelvis 1.0"))
+		self.setWindowIcon((QtGui.QIcon('icons/michaelvis.png')))
+		self.resize(400, 250)
+
+		# center the window according the screen size
+		screen = QtGui.QDesktopWidget().screenGeometry()
+		size =  self.geometry()
+		self.move((screen.width()-size.width())/2, (screen.height()-size.height())/2)
+
+		# it's showtime
+		self.show()
+
+	def getDefinition(self):
+		# we don't want overlapping windows
+		self.hide()
+
+		text = QtGui.QInputDialog.getText(self,
+				self.tr('PyMichaelvis 1.0'),
+				self.tr('<center>Qual palavra quer saber?</center>'),
+				QtGui.QLineEdit.Normal, self.tr(''))
+
+		if text[1] == False:
+			error = '<center><p style="font-size: 175px;">:-(<p></center>'
+			self.textWindow(error)
+
+		text = urllib.quote_plus(unicode(text[0]).encode("latin1")) #first element of a unicoded qstring
+		char = text[0] # first char of a regular string
+
+		# by using /var/lib we would need root access
+		home = os.path.expanduser("~")
+		dicthome = home + "/.pymichaelvis/"
+		if not os.path.exists(dicthome):
+			os.mkdir(dicthome)
+
+		# a specific place for every definition
+		chardir = dicthome + char
+		if not os.path.exists(chardir):
+			os.mkdir(chardir)
+
+		entry = chardir + "/" + text
+		if not os.path.exists(entry):
+			# convert a utf-8 qstring to latin1 then escape it all to be url-friendly
+			path = "http://michaelis.uol.com.br/moderno/portugues/index.php?lingua=portugues-portugues&palavra="
+			url = path + text
+			body = StringIO()
+
+			# curl thingies
+			c = pycurl.Curl()
+			c.setopt(c.URL, str(url))
+			c.setopt(c.WRITEFUNCTION, body.write)
+			c.perform()
+			c.close()
+	
+			# hack to 'grep' the term
+			contents = body.getvalue()
+			data = str(contents)
+			temp = '/tmp/pymichaelvis.buf'
+			file = open(temp, 'w')
+			file.write(data)
+			file.close()
+		else:
+			temp = entry
+
+		# are words without syllabification caught with this?
+		reg = re.compile('palavraComPontos')
+		strings = open(temp, 'r')
+
+		for line in strings:
+			m = reg.search(line)
+			if m:
+				definition = m.string
+				if definition:
+					file = open(entry, "w")
+					file.write(definition)
+					file.close()
+					self.textWindow(definition)
+				break
+			else:
+				error = '<center><p style="font-size: 175px;">:-(<p></center>'
+				self.textWindow(error)
+
+	def setIcon(self):
+		iconPath = QString('icons/michaelvis.png')
+		iconObject = QIcon(iconPath)
+		return QtGui.QSystemTrayIcon(iconObject)
+
+	def trayBehavior(self, reason):
+		if reason != QtGui.QSystemTrayIcon.Context:
+			self.getDefinition()
+
+	def createTrayIcon(self):
+		self.trayIconMenu = QtGui.QMenu(self)
+		self.trayIconMenu.clear()
+		self.trayIconMenu.addAction(self.quitAction)
+
+		self.trayIcon = self.setIcon()
+		self.trayIcon.setContextMenu(self.trayIconMenu)
+		self.trayIcon.show()
+
+		QtCore.QObject.connect(self.trayIcon, QtCore.SIGNAL('activated(QSystemTrayIcon::ActivationReason)'), self.trayBehavior)
+
+	def closeEvent(self, event):
+		event.ignore()
+		self.hide()
+
+if __name__ == '__main__':
+	app = QtGui.QApplication(sys.argv)
+	tray = Systray()
+	sys.exit(app.exec_())
